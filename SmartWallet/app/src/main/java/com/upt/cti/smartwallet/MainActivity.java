@@ -1,83 +1,162 @@
 package com.upt.cti.smartwallet;
-import android.os.Bundle;
-import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.TextView;
+import static java.lang.Float.parseFloat;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.EditText;
+import android.widget.Spinner;
+import android.widget.TextView;
+import android.widget.Toast;
 
-import com.google.android.gms.tasks.OnCompleteListener;
-import com.google.android.gms.tasks.OnFailureListener;
-import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.android.gms.tasks.Task;
-import com.google.firebase.firestore.DocumentReference;
-import com.google.firebase.firestore.DocumentSnapshot;
-import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
-public class MainActivity extends AppCompatActivity {
+import java.util.ArrayList;
+import java.util.List;
+import java.util.ResourceBundle;
 
-    TextView message, month;
-    EditText income, expenses;
-    Button bUpdate, bSearch;
-    private FirebaseFirestore db = FirebaseFirestore.getInstance();
+import model.MonthlyExpenses;
+
+public class MainActivity extends AppCompatActivity implements View.OnCreateContextMenuListener, AdapterView.OnItemSelectedListener{
+
+    private TextView tStatus;
+    private EditText eIncome, eExpenses;
+    private Spinner mSpinner;
+    private DatabaseReference databaseReference;
+    private String currentMonth;
+    private ValueEventListener databaseListener;
+    private List<String> monthsArray;
+    private final static String PREFERENCES_SETTINGS = "prefs_settings";
+    private SharedPreferences sharedPreferences;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        message = findViewById(R.id.message);
-        income = findViewById(R.id.income);
-        expenses = findViewById(R.id.expenses);
-        bUpdate = findViewById(R.id.bUpdate);
-        month = findViewById(R.id.month);
-        bSearch = findViewById(R.id.bSearch);
+        tStatus = (TextView) findViewById(R.id.textView);
+        eIncome = (EditText) findViewById(R.id.eIncome);
+        eExpenses = (EditText) findViewById(R.id.eExpenses);
 
+        FirebaseDatabase database = FirebaseDatabase.getInstance("https://smart-wallet-27310-default-rtdb.europe-west1.firebasedatabase.app/");
+        databaseReference = database.getReference();
+
+        monthsArray = new ArrayList<String>();
+        mSpinner = (Spinner) findViewById(R.id.Mspinner);
+        sharedPreferences =  getSharedPreferences(PREFERENCES_SETTINGS, Context.MODE_PRIVATE);
+
+        final ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, monthsArray);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mSpinner.setAdapter(adapter);
+        mSpinner.setOnItemSelectedListener(this);
+
+        databaseReference.child("Calendar").addValueEventListener(new ValueEventListener() {
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                System.out.println("Add");
+                for(DataSnapshot ds : dataSnapshot.getChildren()) {
+
+                    MonthlyExpenses monthlyExpenses = ds.getValue(MonthlyExpenses.class);
+                    monthlyExpenses.month = ds.getKey();
+                    System.out.println("Value" + monthlyExpenses.getMonth());
+                    if(monthlyExpenses.getMonth() != null) monthsArray.add(ds.getKey());
+                }
+                if(currentMonth != null) mSpinner.setSelection(monthsArray.indexOf(currentMonth));
+
+                adapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+            }
+        });
+
+        currentMonth=sharedPreferences.getString("CurrentMonth", null);
     }
 
     public void clicked(View view) {
         switch (view.getId()) {
-            case R.id.bSearch:
-                DocumentReference docRef = db.collection("calendar").document(month.getText().toString());
-                docRef.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
-                    @Override
-                    public void onComplete(@NonNull Task<DocumentSnapshot> task) {
-                        if (task.isSuccessful()) {
-                            DocumentSnapshot document = task.getResult();
-                            if (document.exists()) {
-                                MonthlyExpenses monthlyExpense = document.toObject(MonthlyExpenses.class);
-                                message.setText(monthlyExpense.getMonth() + " was found");
-                            } else {
-                                message.setText("Couldn't be found");
-                            }
-                        }
-                    }
-                });
-                break;
             case R.id.bUpdate:
-                DocumentReference monthReference = db.collection("calendar").document(month.getText().toString());
-                Integer updatedIncome = Integer.parseInt(income.getText().toString());
-                Integer updatedExpenses = Integer.parseInt(expenses.getText().toString());
-
-                monthReference
-                        .update(
-                                "income", updatedIncome,
-                                "expenses", updatedExpenses
-                        )
-                        .addOnSuccessListener(new OnSuccessListener<Void>() {
-                            @Override
-                            public void onSuccess(Void unused) {
-                                message.setText(month.getText().toString() + " was updated");
-                            }
-                        })
-                        .addOnFailureListener(new OnFailureListener() {
-                            @Override
-                            public void onFailure(@NonNull Exception e) {
-                                message.setText("Error while updating");
-                            }
-                        });
+                if(!eIncome.getText().toString().isEmpty() && !eExpenses.getText().toString().isEmpty()){
+                    tStatus.setText("Searching ...");
+                    createnewUpdateDbListener();
+                }
                 break;
         }
     }
+
+    @Override
+    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+        Object selectedMonth = parent.getItemAtPosition(position);
+        currentMonth=selectedMonth.toString();
+        sharedPreferences.edit().putString("CurrentMonth", currentMonth).apply();
+        createNewDBListener();
+    }
+    @Override
+    public void onNothingSelected(AdapterView<?> parent) {
+        createNewDBListener();
+    }
+
+    private void createNewDBListener() {
+        // remove previous databaseListener
+        if (databaseReference != null && currentMonth != null && databaseListener != null)
+            databaseReference.child("calendar").child(currentMonth).removeEventListener(databaseListener);
+
+        databaseListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+
+                MonthlyExpenses monthlyExpense = dataSnapshot.getValue(MonthlyExpenses.class);
+                // explicit mapping of month name from entry key
+                monthlyExpense.month = dataSnapshot.getKey();
+
+                eIncome.setText(String.valueOf(monthlyExpense.getIncome()));
+                eExpenses.setText(String.valueOf(monthlyExpense.getExpenses()));
+                tStatus.setText("Found entry for " + currentMonth);
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+            }
+        };
+        databaseReference.child("calendar").child(currentMonth).addValueEventListener(databaseListener);
+    }
+
+    private void createnewUpdateDbListener() {
+        // remove previous databaseListener
+        if (databaseReference != null && currentMonth != null && databaseListener != null)
+            databaseReference.child("calendar").child(currentMonth).removeEventListener(databaseListener);
+
+        databaseListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(DataSnapshot dataSnapshot) {
+                // This method is called once with the initial value and again
+                MonthlyExpenses monthlyExpense = new MonthlyExpenses(currentMonth, parseFloat(eIncome.getText().toString()),  parseFloat(eExpenses.getText().toString()));
+                // whenever data at this location is updated.
+                for(DataSnapshot ds : dataSnapshot.getChildren()) {
+                    if (currentMonth == dataSnapshot.getKey()) {
+                        dataSnapshot.child("income").getRef().setValue(monthlyExpense.getIncome());
+                        dataSnapshot.child("expenses").getRef().setValue(monthlyExpense.getExpenses());
+                        // explicit mapping of month name from entry key
+                    }
+                }
+                tStatus.setText("Found entry for " + currentMonth);
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+            }
+        };
+
+        // set new databaseListener
+        databaseReference.child("calendar").child(currentMonth).addValueEventListener(databaseListener);
+    }
+
 }

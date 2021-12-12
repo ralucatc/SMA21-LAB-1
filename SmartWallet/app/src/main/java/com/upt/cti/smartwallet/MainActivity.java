@@ -13,6 +13,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.firebase.database.ChildEventListener;
@@ -21,6 +22,10 @@ import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+
+private FirebaseAuth mAuth;
+private FirebaseAuth.AuthStateListener mAuthListener;
+private static final int REQ_SIGNIN = 3;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,6 +84,29 @@ public class MainActivity extends AppCompatActivity  {
 
             }
 
+            // setup authentication
+            mAuth = FirebaseAuth.getInstance();
+            mAuthListener = new FirebaseAuth.AuthStateListener() {
+                @Override
+                public void onAuthStateChanged(FirebaseAuth firebaseAuth) {
+                    FirebaseUser user = firebaseAuth.getCurrentUser();
+
+                    if (user != null) {
+                        TextView tLoginDetail = (TextView) findViewById(R.id.tLoginDetail);
+                        TextView tUser = (TextView) findViewById(R.id.tUser);
+                        tLoginDetail.setText("Firebase ID: " + user.getUid());
+                        tUser.setText("Email: " + user.getEmail());
+
+                        AppState.get().setUserId(user.getUid());
+                        attachDBListener(user.getUid());
+                    } else {
+                        startActivityForResult(new Intent(getApplicationContext(),
+                                SignupActivity.class), REQ_SIGNIN);
+                    }
+                }
+            };
+        }
+
             @Override
             public void onChildChanged(DataSnapshot snapshot,String previousChildName) {
 
@@ -100,6 +128,20 @@ public class MainActivity extends AppCompatActivity  {
             }
         });
 
+    @Override
+    public void onStart() {
+        super.onStart();
+        mAuth.addAuthStateListener(mAuthListener);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        if (mAuthListener != null) {
+            mAuth.removeAuthStateListener(mAuthListener);
+        }
+    }
+
         if (!AppState.isNetworkAvailable(this)) {
             // has local storage already
             if (AppState.get().hasLocalStorage(this)) {
@@ -111,7 +153,16 @@ public class MainActivity extends AppCompatActivity  {
                 return;
             }
         }
+    private void attachDBListener(String uid) {
+        // setup firebase database
+        final FirebaseDatabase database = FirebaseDatabase.getInstance();
+        DatabaseReference databaseReference = database.getReference();
+        AppState.get().setDatabaseReference(databaseReference);
 
+        databaseReference.child("wallet").child(uid).addChildEventListener(new ChildEventListener() {
+            //...
+        });
+    }
 
     }
 }

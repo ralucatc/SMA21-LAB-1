@@ -3,6 +3,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
+
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -39,6 +43,12 @@ public class MainActivity extends AppCompatActivity  {
 
     private ValueEventListener databaseListener = null;
 
+    public static boolean isNetworkAvailable(Context context) {
+        ConnectivityManager connectivityManager =
+                (ConnectivityManager) context.getSystemService(context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetworkInfo = connectivityManager.getActiveNetworkInfo();
+        return activeNetworkInfo != null && activeNetworkInfo.isConnected();
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -88,7 +98,19 @@ public class MainActivity extends AppCompatActivity  {
             public void onCancelled(DatabaseError error) {
 
             }
-        }) ;
+        });
+
+        if (!AppState.isNetworkAvailable(this)) {
+            // has local storage already
+            if (AppState.get().hasLocalStorage(this)) {
+                payments = /**/
+                        tStatus.setText("Found " + payments.size() + " payments for " +
+                                Month.intToMonthName(currentMonth) + ".");
+            } else {
+                Toast.makeText(this, "This app needs an internet connection!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
 
 
     }
